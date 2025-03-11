@@ -47,7 +47,7 @@ GENE2   75
 - `cleaned_gene_expression_data.csv`: Contains gene expression values, Log2FoldChange, and adjusted p-values.
 - `significant_genes.csv`: Filtered genes with an adjusted p-value < 0.05.
 
-![alt text](https://github.com/AkimzhanRakhimov/ProteinParser/blob/main/2025-03-11_14-29-27.png)
+![alt text](https://github.com/AkimzhanRakhimov/GeneExpressionAnalysis/blob/main/2025-03-11_14-29-27.png)
 
 ## Visualization
 - **Volcano Plot**: Highlights significantly differentially expressed genes.
