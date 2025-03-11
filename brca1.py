@@ -4,12 +4,17 @@ from scipy.stats import ttest_rel
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tkinter import Tk, filedialog
+from statsmodels.stats.multitest import multipletests
+import rpy2.robjects as ro
+from rpy2.robjects.packages import importr
+from rpy2.robjects import pandas2ri
+
+pandas2ri.activate()
 
 # ===============================
 # Функции для анализа данных RNA-seq
 # ===============================
 
-# Функция загрузки и предварительной обработки данных
 def load_and_prepare_data():
     # Открытие окна выбора файлов
     Tk().withdraw()  # Скрытие главного окна Tk
@@ -37,17 +42,45 @@ def load_and_prepare_data():
     print("Данные успешно загружены и подготовлены.")
     return df
 
-# Функция расчета Log2FoldChange и p-value
+# Функция расчета Log2FoldChange и p-value с коррекцией методом Бенджамини-Хохберга
 def compute_differential_expression(df):
     df["Log2FoldChange"] = np.log2((df["Resistant"] + 1) / (df["Control"] + 1))
     df["p-value"] = ttest_rel(df["Control"], df["Resistant"])[1]
+
+    # Коррекция p-value методом Бенджамини-Хохберга
+    df["adjusted p-value"] = multipletests(df["p-value"], method="fdr_bh")[1]
     return df
 
 # Функция фильтрации значимых генов
 def filter_significant_genes(df, p_threshold=0.05):
-    significant_genes = df[df["p-value"] < p_threshold]
-    print(f"Найдено {len(significant_genes)} значимых генов (p-value < {p_threshold}).")
+    significant_genes = df[df["adjusted p-value"] < p_threshold]
+    print(f"Найдено {len(significant_genes)} значимых генов (adjusted p-value < {p_threshold}).")
     return significant_genes
+
+# Использование DESeq2 для анализа дифференциальной экспрессии через R
+def compute_deseq2_differential_expression(df):
+    try:
+        deseq2 = importr("DESeq2")
+        base = importr("base")
+
+        # Создание объекта DataFrame для R
+        ro.globalenv["count_data"] = pandas2ri.py2rpy(df.set_index("Gene"))
+        design_matrix = ro.r("data.frame(condition=factor(c(rep('Control', nrow(count_data)/2), rep('Resistant', nrow(count_data)/2))))")
+
+        # Анализ через DESeq2
+        dds = deseq2.DESeqDataSetFromMatrix(countData=ro.globalenv["count_data"], colData=design_matrix, design=ro.Formula("~ condition"))
+        dds = deseq2.DESeq(dds)
+        results = deseq2.results(dds)
+
+        # Преобразование результата обратно в DataFrame
+        res_df = pandas2ri.rpy2py(base.as_data_frame(results))
+        res_df.columns = ["baseMean", "log2FoldChange", "lfcSE", "stat", "p-value", "adjusted p-value"]
+
+        print("DESeq2 анализ завершен.")
+        return res_df
+    except Exception as e:
+        print("Ошибка при использовании DESeq2:", e)
+        return df
 
 # Функция сохранения данных в CSV
 def save_data(df, filename):
