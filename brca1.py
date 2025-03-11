@@ -12,82 +12,82 @@ from rpy2.robjects import pandas2ri
 pandas2ri.activate()
 
 # ===============================
-# Функции для анализа данных RNA-seq
+# RNA-seq Data Analysis Functions
 # ===============================
 
 def load_and_prepare_data():
-    # Открытие окна выбора файлов
-    Tk().withdraw()  # Скрытие главного окна Tk
-    print("Выберите файл с контрольными данными")
-    control_file = filedialog.askopenfilename(title="Выберите файл с контрольными данными")
-    print("Выберите файл с радиорезистентными данными")
-    resistant_file = filedialog.askopenfilename(title="Выберите файл с радиорезистентными данными")
+    # Open file selection dialogs
+    Tk().withdraw()  # Hide the main Tk window
+    print("Select the control data file")
+    control_file = filedialog.askopenfilename(title="Select the control data file")
+    print("Select the radioresistant data file")
+    resistant_file = filedialog.askopenfilename(title="Select the radioresistant data file")
 
     if not control_file or not resistant_file:
-        print("Ошибка: не выбраны файлы для анализа.")
+        print("Error: No files selected for analysis.")
         return None
 
-    # Загрузка данных
+    # Load data
     df_control = pd.read_csv(control_file, sep="\t")
     df_resistant = pd.read_csv(resistant_file, sep="\t")
 
-    # Переименование колонок
+    # Rename columns
     df_control.columns = ["Gene", "Control"]
     df_resistant.columns = ["Gene", "Resistant"]
 
-    # Объединение таблиц и фильтрация данных
+    # Merge tables and filter data
     df = pd.merge(df_control, df_resistant, on="Gene").drop_duplicates(subset=["Gene"])
     df = df[(df["Control"] > 0) | (df["Resistant"] > 0)]
 
-    print("Данные успешно загружены и подготовлены.")
+    print("Data successfully loaded and prepared.")
     return df
 
-# Функция расчета Log2FoldChange и p-value с коррекцией методом Бенджамини-Хохберга
+# Function to compute Log2FoldChange and p-value with Benjamini-Hochberg correction
 def compute_differential_expression(df):
     df["Log2FoldChange"] = np.log2((df["Resistant"] + 1) / (df["Control"] + 1))
     df["p-value"] = ttest_rel(df["Control"], df["Resistant"])[1]
 
-    # Коррекция p-value методом Бенджамини-Хохберга
+    # Adjust p-values using Benjamini-Hochberg method
     df["adjusted p-value"] = multipletests(df["p-value"], method="fdr_bh")[1]
     return df
 
-# Функция фильтрации значимых генов
+# Function to filter significant genes
 def filter_significant_genes(df, p_threshold=0.05):
     significant_genes = df[df["adjusted p-value"] < p_threshold]
-    print(f"Найдено {len(significant_genes)} значимых генов (adjusted p-value < {p_threshold}).")
+    print(f"Found {len(significant_genes)} significant genes (adjusted p-value < {p_threshold}).")
     return significant_genes
 
-# Использование DESeq2 для анализа дифференциальной экспрессии через R
+# Using DESeq2 for differential expression analysis via R
 def compute_deseq2_differential_expression(df):
     try:
         deseq2 = importr("DESeq2")
         base = importr("base")
 
-        # Создание объекта DataFrame для R
+        # Create an R DataFrame
         ro.globalenv["count_data"] = pandas2ri.py2rpy(df.set_index("Gene"))
         design_matrix = ro.r("data.frame(condition=factor(c(rep('Control', nrow(count_data)/2), rep('Resistant', nrow(count_data)/2))))")
 
-        # Анализ через DESeq2
+        # Perform DESeq2 analysis
         dds = deseq2.DESeqDataSetFromMatrix(countData=ro.globalenv["count_data"], colData=design_matrix, design=ro.Formula("~ condition"))
         dds = deseq2.DESeq(dds)
         results = deseq2.results(dds)
 
-        # Преобразование результата обратно в DataFrame
+        # Convert results back to DataFrame
         res_df = pandas2ri.rpy2py(base.as_data_frame(results))
         res_df.columns = ["baseMean", "log2FoldChange", "lfcSE", "stat", "p-value", "adjusted p-value"]
 
-        print("DESeq2 анализ завершен.")
+        print("DESeq2 analysis completed.")
         return res_df
     except Exception as e:
-        print("Ошибка при использовании DESeq2:", e)
+        print("Error using DESeq2:", e)
         return df
 
-# Функция сохранения данных в CSV
+# Function to save data to CSV
 def save_data(df, filename):
     df.to_csv(filename, index=False)
-    print(f"Данные сохранены в файл {filename}.")
+    print(f"Data saved to {filename}.")
 
-# Функция визуализации Volcano Plot
+# Function to visualize Volcano Plot
 def plot_volcano(df, significant_genes):
     plt.figure(figsize=(8, 6))
     plt.scatter(df["Log2FoldChange"], -np.log10(df["p-value"]), c='grey')
@@ -98,7 +98,7 @@ def plot_volcano(df, significant_genes):
     plt.title("Volcano Plot")
     plt.show()
 
-# Функция визуализации Heatmap для топ-N генов
+# Function to visualize Heatmap for top-N genes
 def plot_heatmap(significant_genes, top_n=20):
     top_genes = significant_genes.nlargest(top_n, "Log2FoldChange")
     plt.figure(figsize=(10, 6))
@@ -107,28 +107,28 @@ def plot_heatmap(significant_genes, top_n=20):
     plt.show()
 
 # ===============================
-# Основной анализ
+# Main Analysis
 # ===============================
 
 def main():
-    # Загрузка и обработка данных
+    # Load and process data
     df = load_and_prepare_data()
     if df is None:
         return
 
-    # Расчет дифференциальной экспрессии
+    # Compute differential expression
     df = compute_differential_expression(df)
 
-    # Сохранение очищенных данных
+    # Save cleaned data
     save_data(df, "cleaned_gene_expression_data.csv")
 
-    # Фильтрация значимых генов
+    # Filter significant genes
     significant_genes = filter_significant_genes(df)
 
-    # Сохранение значимых генов
+    # Save significant genes
     save_data(significant_genes, "significant_genes.csv")
 
-    # Визуализации
+    # Visualizations
     plot_volcano(df, significant_genes)
     plot_heatmap(significant_genes)
 
